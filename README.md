@@ -1,4 +1,5 @@
-# ComfyUI-MultiGPU
+# ComfyUI-MultiProcess
+Note: This a fork of the extension Comfyui-MultiGPU by neuratech-ai.
 
 ### Experimental nodes for using multiple GPUs in a single ComfyUI workflow.
 
