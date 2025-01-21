@@ -52,6 +52,8 @@ If you encounter problems, please [open an issue](https://github.com/neuratech-a
 
 ## Credits
 
-Made by [Alexander Dzhoganov](https://github.com/AlexanderDzhoganov).
+[Made by [Alexander Dzhoganov](https://github.com/AlexanderDzhoganov). All Credit goes to him. 
+For business inquiries, email [sales@neuratech.io](mailto:sales@neuratech.io) or visit [our website](https://neuratech.io/).]
 
-For business inquiries, email [sales@neuratech.io](mailto:sales@neuratech.io) or visit [our website](https://neuratech.io/).
+Forked by AhmedHamdi234
+
