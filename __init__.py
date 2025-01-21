@@ -48,6 +48,32 @@ class CheckpointLoaderMultiGPU:
         return out[:3]
 
 
+class CheckpointLoaderCPU:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "ckpt_name": (folder_paths.get_filename_list("checkpoints"),),
+            }
+        }
+
+    RETURN_TYPES = ("MODEL", "CLIP", "VAE")
+    FUNCTION = "load_checkpoint_cpu"
+    CATEGORY = "loaders"
+
+    def load_checkpoint_cpu(self, ckpt_name):
+        global current_device
+        current_device = torch.device("cpu")
+
+        ckpt_path = folder_paths.get_full_path("checkpoints", ckpt_name)
+        out = comfy.sd.load_checkpoint_guess_config(
+            ckpt_path,
+            output_vae=True,
+            output_clip=True,
+            embedding_directory=folder_paths.get_folder_paths("embeddings"),
+        )
+        return out[:3]
+
 class UNETLoaderMultiGPU:
     @classmethod
     def INPUT_TYPES(s):
@@ -172,6 +198,99 @@ class VAELoaderMultiGPU:
         vae = comfy.sd.VAE(sd=sd)
         return (vae,)
 
+class VAELoaderCPU:
+    @staticmethod
+    def vae_list():
+        vaes = folder_paths.get_filename_list("vae")
+        approx_vaes = folder_paths.get_filename_list("vae_approx")
+        sdxl_taesd_enc = False
+        sdxl_taesd_dec = False
+        sd1_taesd_enc = False
+        sd1_taesd_dec = False
+        sd3_taesd_enc = False
+        sd3_taesd_dec = False
+
+        for v in approx_vaes:
+            if v.startswith("taesd_decoder."):
+                sd1_taesd_dec = True
+            elif v.startswith("taesd_encoder."):
+                sd1_taesd_enc = True
+            elif v.startswith("taesdxl_decoder."):
+                sdxl_taesd_dec = True
+            elif v.startswith("taesdxl_encoder."):
+                sdxl_taesd_enc = True
+            elif v.startswith("taesd3_decoder."):
+                sd3_taesd_dec = True
+            elif v.startswith("taesd3_encoder."):
+                sd3_taesd_enc = True
+        if sd1_taesd_dec and sd1_taesd_enc:
+            vaes.append("taesd")
+        if sdxl_taesd_dec and sdxl_taesd_enc:
+            vaes.append("taesdxl")
+        if sd3_taesd_dec and sd3_taesd_enc:
+            vaes.append("taesd3")
+        return vaes
+
+    @staticmethod
+    def load_taesd(name):
+        sd = {}
+        approx_vaes = folder_paths.get_filename_list("vae_approx")
+
+        encoder = next(
+            filter(lambda a: a.startswith("{}_encoder.".format(name)), approx_vaes)
+        )
+        decoder = next(
+            filter(lambda a: a.startswith("{}_decoder.".format(name)), approx_vaes)
+        )
+
+        enc = comfy.utils.load_torch_file(
+            folder_paths.get_full_path("vae_approx", encoder)
+        )
+        for k in enc:
+            sd["taesd_encoder.{}".format(k)] = enc[k]
+
+        dec = comfy.utils.load_torch_file(
+            folder_paths.get_full_path("vae_approx", decoder)
+        )
+        for k in dec:
+            sd["taesd_decoder.{}".format(k)] = dec[k]
+
+        if name == "taesd":
+            sd["vae_scale"] = torch.tensor(0.18215)
+            sd["vae_shift"] = torch.tensor(0.0)
+        elif name == "taesdxl":
+            sd["vae_scale"] = torch.tensor(0.13025)
+            sd["vae_shift"] = torch.tensor(0.0)
+        elif name == "taesd3":
+            sd["vae_scale"] = torch.tensor(1.5305)
+            sd["vae_shift"] = torch.tensor(0.0609)
+        return sd
+
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "vae_name": (s.vae_list(),),
+                "device": ([f"cuda:{i}" for i in range(torch.cuda.device_count())],),
+            }
+        }
+
+    RETURN_TYPES = ("VAE",)
+    FUNCTION = "load_vae_cpu"
+    CATEGORY = "loaders"
+
+    # TODO: scale factor?
+    def load_vae_cpu(self, vae_name, device):
+        global current_device
+        current_device = torch.device("cpu")
+
+        if vae_name in ["taesd", "taesdxl", "taesd3"]:
+            sd = self.load_taesd(vae_name)
+        else:
+            vae_path = folder_paths.get_full_path("vae", vae_name)
+            sd = comfy.utils.load_torch_file(vae_path)
+        vae = comfy.sd.VAE(sd=sd)
+        return (vae,)
 
 class ControlNetLoaderMultiGPU:
     @classmethod
@@ -190,6 +309,27 @@ class ControlNetLoaderMultiGPU:
     def load_controlnet(self, control_net_name, device):
         global current_device
         current_device = device
+
+        controlnet_path = folder_paths.get_full_path("controlnet", control_net_name)
+        controlnet = comfy.controlnet.load_controlnet(controlnet_path)
+        return (controlnet,)
+        
+class ControlNetLoaderCPU:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "control_net_name": (folder_paths.get_filename_list("controlnet"),),
+            }
+        }
+
+    RETURN_TYPES = ("CONTROL_NET",)
+    FUNCTION = "load_controlnet_cpu"
+    CATEGORY = "loaders"
+
+    def load_controlnet_cpu(self, control_net_name):
+        global current_device
+        current_device = torch.device("cpu")
 
         controlnet_path = folder_paths.get_full_path("controlnet", control_net_name)
         controlnet = comfy.controlnet.load_controlnet(controlnet_path)
@@ -275,18 +415,24 @@ class DualCLIPLoaderMultiGPU:
 
 NODE_CLASS_MAPPINGS = {
     "CheckpointLoaderMultiGPU": CheckpointLoaderMultiGPU,
+    "CheckpointLoaderCPU": CheckpointLoaderCPU,
     "UNETLoaderMultiGPU": UNETLoaderMultiGPU,
     "VAELoaderMultiGPU": VAELoaderMultiGPU,
+    "VAELoaderCPU": VAELoaderCPU,
     "ControlNetLoaderMultiGPU": ControlNetLoaderMultiGPU,
+    "ControlNetLoaderCPU": ControlNetLoaderCPU,
     "CLIPLoaderMultiGPU": CLIPLoaderMultiGPU,
     "DualCLIPLoaderMultiGPU": DualCLIPLoaderMultiGPU,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "CheckpointLoaderMultiGPU": "Load Checkpoint (Multi-GPU)",
+    "CheckpointLoaderCPU": "Load Checkpoint (CPU) [By Hamdi]",
     "UNETLoaderMultiGPU": "Load Diffusion Model (Multi-GPU)",
     "VAELoaderMultiGPU": "Load VAE (Multi-GPU)",
+    "VAELoaderCPU": "Load VAE (CPU) [By Hamdi]",
     "ControlNetLoaderMultiGPU": "Load ControlNet Model (Multi-GPU)",
+    "ControlNetLoaderCPU": "Load ControlNet Model (CPU) [By Hamdi]",
     "CLIPLoaderMultiGPU": "Load CLIP (Multi-GPU)",
     "DualCLIPLoaderMultiGPU": "DualCLIPLoader (Multi-GPU)",
 }
